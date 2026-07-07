@@ -1818,4 +1818,1122 @@ function drawDonut(w,l,o,b){
 function calNav(d){calMonth+=d;if(calMonth>11){calMonth=0;calYear++;}else if(calMonth<0){calMonth=11;calYear--;}renderCalendar();}
 function calToday(){calYear=new Date().getFullYear();calMonth=new Date().getMonth();renderCalendar();}
 function renderCalendar(){
-  const months=['มกราคม','กุมภาพันธ์','มีนาค
+  const months=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
+    'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+  document.getElementById('cal-title').textContent=months[calMonth]+' '+(calYear+543);
+  const grid=document.getElementById('cal-grid');
+  const first=new Date(calYear,calMonth,1).getDay();
+  const days=new Date(calYear,calMonth+1,0).getDate();
+  const today=new Date();
+  const pad=n=>n.toString().padStart(2,'0');
+  const saved=JSON.parse(localStorage.getItem('tj-bias')||'{}');
+
+  const tradesByDay={};
+  trades.forEach(t=>{
+    if(!t.date)return;
+    const d=t.date.slice(0,10);
+    if(!tradesByDay[d])tradesByDay[d]=[];
+    tradesByDay[d].push(t);
+  });
+
+  let calHtml='';
+  for(let i=0;i<first;i++)calHtml+='<div class="cal-day" style="opacity:.15;cursor:default"></div>';
+  for(let d=1;d<=days;d++){
+    const dateStr=calYear+'-'+pad(calMonth+1)+'-'+pad(d);
+    const dayTrades=tradesByDay[dateStr]||[];
+    const isToday=d===today.getDate()&&calMonth===today.getMonth()&&calYear===today.getFullYear();
+    const isFuture=new Date(dateStr)>today;
+    const pnl=dayTrades.reduce((a,t)=>a+(t.pnl||0),0);
+    const pnlCol=pnl>0?'var(--accent)':pnl<0?'var(--red)':'var(--muted)';
+    const bias=saved[dateStr];
+    const biasCol=bias?(bias.dir==='bull'?'var(--accent)':bias.dir==='bear'?'var(--red)':'var(--gold)'):'transparent';
+    const biasEmoji=bias?(bias.dir==='bull'?'▲':bias.dir==='bear'?'▼':'↔'):'';
+    calHtml+=`<div class="cal-day${isToday?' today-cal':''}${dayTrades.length?' has-trade':''}"
+      onclick="openBiasModal('${dateStr}')"
+      title="${isFuture?'คลิกเพื่อตั้ง Bias ล่วงหน้า':'คลิกเพื่อบันทึก Daily Bias'}">
+      <div class="cd-num" style="${isToday?'color:var(--blue)':''}">${d}</div>
+      ${dayTrades.length?`<div class="cd-pnl" style="color:${pnlCol}">${pnl>=0?'+':''}$${pnl.toFixed(0)}</div>
+        <div style="font-size:10px;color:var(--muted)">${dayTrades.length} เทรด</div>`:''}
+      ${bias?`<div class="cal-bias-dot" style="background:${biasCol}" title="${biasEmoji} Bias: ${bias.dir}"></div>`:''}
+    </div>`;
+  }
+  grid.innerHTML=calHtml;
+
+  // Month summary
+  const mTrades=Object.entries(tradesByDay)
+    .filter(([d])=>d.startsWith(calYear+'-'+pad(calMonth+1)))
+    .flatMap(([,t])=>t);
+  const mPnl=mTrades.reduce((a,t)=>a+(t.pnl||0),0);
+  const mWins=mTrades.filter(t=>t.status==='Win').length;
+  const mClosed=mTrades.filter(t=>t.status==='Win'||t.status==='Loss').length;
+  // นับ Bias ของเดือน
+  const mBias=Object.entries(saved).filter(([d])=>d.startsWith(calYear+'-'+pad(calMonth+1)));
+  const bullDays=mBias.filter(([,b])=>b.dir==='bull').length;
+  const bearDays=mBias.filter(([,b])=>b.dir==='bear').length;
+  document.getElementById('cal-summary').innerHTML=`
+    <div class="stat-card"><div class="stat-label">เทรด</div><div class="stat-value">${mTrades.length}</div></div>
+    <div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value green">${mClosed?Math.round(mWins/mClosed*100)+'%':'—'}</div></div>
+    <div class="stat-card"><div class="stat-label">P&L</div><div class="stat-value ${mPnl>=0?'green':'red'}">${mPnl>=0?'+':''}$${mPnl.toFixed(2)}</div></div>
+    <div class="stat-card"><div class="stat-label">Bullish วัน</div><div class="stat-value green">${bullDays}</div></div>
+    <div class="stat-card"><div class="stat-label">Bearish วัน</div><div class="stat-value red">${bearDays}</div></div>`;
+}
+
+// ═══════ DAILY BIAS ═══════
+function goToCalendar(){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  const calBtn = document.querySelector('.tab-btn[data-tab="calendar"]');
+  const calPanel = document.getElementById('tab-calendar');
+  if(calBtn) calBtn.classList.add('active');
+  if(calPanel) calPanel.classList.add('active');
+  renderCalendar();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function renderBias(){
+  const saved=JSON.parse(localStorage.getItem('tj-bias')||'{}');
+  const today=new Date();
+  const pad=n=>n.toString().padStart(2,'0');
+  const dayNames=['อา','จ','อ','พ','พฤ','ศ','ส'];
+  // แสดง 7 วันของสัปดาห์ปัจจุบัน
+  const days=[];
+  for(let i=0;i<7;i++){
+    const d=new Date(today);
+    d.setDate(today.getDate()-today.getDay()+i);
+    days.push(d);
+  }
+  const el=document.getElementById('bias-days');
+  if(!el)return;
+  el.innerHTML=days.map(d=>{
+    const key=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+    const b=saved[key]||{};
+    const isToday=d.toDateString()===today.toDateString();
+    const dirEmoji=b.dir==='bull'?'▲':b.dir==='bear'?'▼':b.dir==='neut'?'↔':'';
+    const dirCol=b.dir==='bull'?'var(--accent)':b.dir==='bear'?'var(--red)':'var(--gold)';
+    const confStars=b.conf?'⭐'.repeat(parseInt(b.conf)):'';
+    return `<div class="bias-day${isToday?' today':''}" onclick="openBiasModal('${key}')"
+      title="คลิกเพื่อ${b.dir?'แก้ไข':'บันทึก'} Bias">
+      <div class="bd-date">${pad(d.getDate())}/${pad(d.getMonth()+1)}</div>
+      <div class="bd-day">${dayNames[d.getDay()]}</div>
+      ${b.dir
+        ?`<div style="font-size:16px;font-weight:700;color:${dirCol}">${dirEmoji}</div>
+          <div style="font-size:9px;color:var(--muted)">${confStars}</div>`
+        :`<div style="font-size:11px;color:var(--border)">+ เพิ่ม</div>`}
+    </div>`;
+  }).join('');
+}
+// ── BIAS MODAL FUNCTIONS ──
+var currentBiasKey = '';
+function openBiasModal(dateStr){
+  currentBiasKey = dateStr;
+  const saved = JSON.parse(localStorage.getItem('tj-bias')||'{}');
+  const b = saved[dateStr] || {};
+  // format วันที่ภาษาไทย
+  const dt = new Date(dateStr+'T00:00:00');
+  const days=['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัส','ศุกร์','เสาร์'];
+  const months=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.',
+    'ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  const label=`วัน${days[dt.getDay()]}ที่ ${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()+543}`;
+  document.getElementById('bias-modal-date').textContent = 'Daily Bias — '+label;
+  document.getElementById('bias-date-label').textContent = label;
+  // โหลดข้อมูลเดิม
+  document.getElementById('bias-note').value = b.note||'';
+  document.getElementById('bias-symbols').value = b.symbols||'';
+  document.getElementById('bias-dir').value = b.dir||'';
+  document.getElementById('bias-conf').value = b.conf||2;
+  setBiasDir(b.dir||'');
+  setBiasConf(b.conf||2);
+  document.getElementById('bias-modal').classList.add('show');
+}
+function closeBiasModal(){
+  document.getElementById('bias-modal').classList.remove('show');
+  currentBiasKey = '';
+}
+function setBiasDir(d){
+  document.getElementById('bias-dir').value = d;
+  document.getElementById('bc-bull').className='bias-choice'+(d==='bull'?' bull-active':'');
+  document.getElementById('bc-bear').className='bias-choice'+(d==='bear'?' bear-active':'');
+  document.getElementById('bc-neut').className='bias-choice'+(d==='neut'?' neut-active':'');
+}
+function setBiasConf(c){
+  document.getElementById('bias-conf').value = c;
+  document.querySelectorAll('.conf-btn').forEach(btn=>{
+    btn.classList.toggle('active', parseInt(btn.dataset.conf)===parseInt(c));
+  });
+}
+function saveBias(){
+  if(!currentBiasKey) return;
+  const saved = JSON.parse(localStorage.getItem('tj-bias')||'{}');
+  saved[currentBiasKey] = {
+    dir: document.getElementById('bias-dir').value,
+    conf: document.getElementById('bias-conf').value,
+    note: document.getElementById('bias-note').value,
+    symbols: document.getElementById('bias-symbols').value,
+  };
+  localStorage.setItem('tj-bias', JSON.stringify(saved));
+  triggerAutoSync();
+  closeBiasModal();
+  renderCalendar();
+  renderBias();
+  showToast('✅ บันทึก Daily Bias แล้ว');
+}
+// click overlay ปิด
+document.getElementById('bias-modal').addEventListener('click', function(e){
+  if(e.target===this) closeBiasModal();
+});
+
+function editBias(key){ openBiasModal(key); }
+
+// ═══════ TRADINGVIEW ═══════
+function openTVChart(){
+  const raw=(document.getElementById('tv-symbol').value||'').trim().toUpperCase();
+  if(!raw){showToast('⚠️ กรุณาพิมพ์ Symbol');return;}
+  const iv=document.getElementById('tv-interval').value;
+  window.open('https://th.tradingview.com/chart/?symbol='+encodeURIComponent(raw)+'&interval='+iv,'_blank');
+}
+
+// ═══════ EXPORT CSV ═══════
+// ═══════ EXPORT MODAL LOGIC ═══════
+let exportRange = 'all';
+
+function openExportModal(){
+  if(!trades.length){showToast('⚠️ ไม่มีข้อมูลให้ Export');return;}
+  // เติม symbol dropdown
+  const symbols=[...new Set(trades.map(t=>t.symbol).filter(Boolean))].sort();
+  const symSel=document.getElementById('export-symbol');
+  symSel.innerHTML='<option value="">ทุก Symbol</option>'+
+    symbols.map(s=>`<option value="${s}">${s}</option>`).join('');
+  setExportRange('all');
+  document.getElementById('export-modal').classList.add('show');
+}
+function closeExportModal(){
+  document.getElementById('export-modal').classList.remove('show');
+}
+document.getElementById('export-modal').addEventListener('click',function(e){
+  if(e.target===this)closeExportModal();
+});
+
+function setExportRange(range){
+  exportRange=range;
+  document.querySelectorAll('#export-modal .conf-btn').forEach(b=>{
+    b.classList.toggle('active',b.dataset.range===range);
+  });
+  const customDiv=document.getElementById('export-custom-dates');
+  customDiv.style.display = range==='custom' ? 'flex' : 'none';
+
+  const today=new Date();
+  const pad=n=>n.toString().padStart(2,'0');
+  const fmt=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+
+  if(range==='today'){
+    document.getElementById('export-from').value=fmt(today);
+    document.getElementById('export-to').value=fmt(today);
+  } else if(range==='week'){
+    const start=new Date(today);start.setDate(today.getDate()-today.getDay());
+    document.getElementById('export-from').value=fmt(start);
+    document.getElementById('export-to').value=fmt(today);
+  } else if(range==='month'){
+    const start=new Date(today.getFullYear(),today.getMonth(),1);
+    document.getElementById('export-from').value=fmt(start);
+    document.getElementById('export-to').value=fmt(today);
+  } else if(range==='lastweek'){
+    const start=new Date(today);start.setDate(today.getDate()-7);
+    document.getElementById('export-from').value=fmt(start);
+    document.getElementById('export-to').value=fmt(today);
+  } else if(range==='lastmonth'){
+    const start=new Date(today);start.setDate(today.getDate()-30);
+    document.getElementById('export-from').value=fmt(start);
+    document.getElementById('export-to').value=fmt(today);
+  } else if(range==='all'){
+    document.getElementById('export-from').value='';
+    document.getElementById('export-to').value='';
+  }
+  updateExportPreview();
+}
+
+function getFilteredExportTrades(){
+  const from=document.getElementById('export-from').value;
+  const to=document.getElementById('export-to').value;
+  const sym=document.getElementById('export-symbol').value;
+  const stat=document.getElementById('export-status').value;
+
+  return trades.filter(t=>{
+    if(exportRange!=='all' && t.date){
+      const d=t.date.slice(0,10);
+      if(from && d<from) return false;
+      if(to && d>to) return false;
+    }
+    if(sym && t.symbol!==sym) return false;
+    if(stat && t.status!==stat) return false;
+    return true;
+  });
+}
+
+function updateExportPreview(){
+  const filtered=getFilteredExportTrades();
+  document.getElementById('export-count').textContent=filtered.length+' เทรด';
+}
+
+function doExport(type){
+  const filtered=getFilteredExportTrades();
+  if(!filtered.length){showToast('⚠️ ไม่มีข้อมูลตรงเงื่อนไขที่เลือก');return;}
+  closeExportModal();
+  if(type==='csv') exportCSV(filtered);
+  else exportExcelZip(filtered);
+}
+
+function exportCSV(customTrades){
+  const src = customTrades || trades;
+  if(!src.length){showToast('⚠️ ไม่มีข้อมูล');return;}
+  const cols=['id','date','symbol','direction','session','tf','entry','sl','tp','exit','lot','risk','pnl','rr','ms','ob','fvg','liq','pd','wave','wavetype','div','trend','status','emotion','rule','rationale','lesson'];
+  const rows=[cols.join(','),...src.map(t=>cols.map(k=>`"${(t[k]||'').toString().replace(/"/g,'""')}"`).join(','))];
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([rows.join('\n')],{type:'text/csv'}));
+  const suffix = customTrades ? '-filtered' : '';
+  a.download='trade-journal'+suffix+'-'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+  localStorage.setItem('tj-lastexport',Date.now());
+  showToast('✅ Export CSV แล้ว ('+src.length+' รายการ)');
+}
+
+// ═══════ IMPORT CSV ═══════
+function importCSV(){document.getElementById('import-file').click();}
+function parseCSVLine(line) {
+  // parser ที่รองรับ comma ใน quoted fields และ escaped quotes
+  const result = [];
+  let cur = '';
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuote && line[i+1] === '"') { cur += '"'; i++; } // escaped quote ""
+      else inQuote = !inQuote;
+    } else if (ch === ',' && !inQuote) {
+      result.push(cur.trim()); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+function onImportFile(input){
+  const f = input.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    const text = ev.target.result;
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) { showToast('⚠️ ไฟล์ไม่ถูกต้อง (ต้องมีอย่างน้อย 2 แถว)'); return; }
+
+    const headers = parseCSVLine(lines[0]).map(h => h.replace(/"/g,'').trim());
+    if (!headers.includes('date') && !headers.includes('symbol')) {
+      showToast('⚠️ format ไม่ถูกต้อง — ต้องมี column "date" และ "symbol"'); return;
+    }
+
+    const imported = lines.slice(1).map(line => {
+      const vals = parseCSVLine(line);
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = (vals[i] || '').replace(/^"|"$/g,'').trim(); });
+      obj.id = parseInt(obj.id) || (Date.now() + Math.random());
+      ['entry','sl','tp','exit','lot','risk','pnl','rr'].forEach(k => {
+        if (obj[k] !== '' && obj[k] !== undefined) obj[k] = parseFloat(obj[k]) || null;
+      });
+      obj.screenshots = obj.screenshots ? [] : []; // ไม่ import รูปจาก CSV
+      return obj;
+    }).filter(t => t.symbol); // กรองแถวว่าง
+
+    const existIds = new Set(trades.map(t => String(t.id)));
+    const newOnes = imported.filter(t => !existIds.has(String(t.id)));
+    const dupCount = imported.length - newOnes.length;
+
+    trades = [...trades, ...newOnes];
+    save(); renderTable(); updateQuickStats();
+
+    let msg = '✅ Import ' + newOnes.length + ' รายการแล้ว';
+    if (dupCount > 0) msg += ' (ข้าม ' + dupCount + ' ซ้ำ)';
+    showToast(msg);
+  };
+  r.readAsText(f, 'UTF-8');
+  input.value = '';
+}
+
+// ═══════ IMPORT EXCEL (พร้อม Column Mapping) ═══════
+// ฟิลด์ของ Trade Journal ที่ผู้ใช้สามารถแมปคอลัมน์ Excel เข้ามาได้
+const IMPORT_TARGET_FIELDS = [
+  {key:'date',     label:'วันที่',        required:true},
+  {key:'symbol',   label:'Symbol',        required:true},
+  {key:'direction',label:'ทิศทาง (BUY/SELL)', required:false},
+  {key:'entry',    label:'Entry Price',   required:false},
+  {key:'sl',       label:'Stop Loss',     required:false},
+  {key:'tp',       label:'Take Profit',   required:false},
+  {key:'exit',     label:'Exit Price',    required:false},
+  {key:'lot',      label:'Lot Size',      required:false},
+  {key:'pnl',      label:'P&L ($)',       required:false},
+  {key:'rr',       label:'R:R Ratio',     required:false},
+  {key:'status',   label:'สถานะ (Win/Loss/BE)', required:false},
+  {key:'session',  label:'Session',       required:false},
+  {key:'tf',       label:'Timeframe',     required:false},
+  {key:'emotion',  label:'อารมณ์',        required:false},
+  {key:'rationale',label:'เหตุผลเข้าเทรด',required:false},
+  {key:'lesson',   label:'บทเรียน',       required:false},
+];
+
+let importExcelState = { workbook:null, sheetName:'', rows:[], headers:[] };
+
+function importExcel(){ document.getElementById('import-excel-file').click(); }
+
+async function onImportExcelFile(input){
+  const f = input.files[0]; if(!f) return;
+  input.value='';
+
+  async function loadScript(src,chk){
+    if(window[chk])return;
+    return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s);});
+  }
+
+  try{
+    showToast('⏳ กำลังอ่านไฟล์ Excel…');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js','XLSX');
+
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array', cellDates:true});
+    importExcelState.workbook = wb;
+    importExcelState.filename = f.name;
+
+    // เติม sheet selector
+    const sheetSel = document.getElementById('import-sheet-select');
+    sheetSel.innerHTML = wb.SheetNames.map(n=>`<option value="${n}">${n}</option>`).join('');
+    document.getElementById('import-filename').textContent = f.name;
+
+    loadImportSheet(wb.SheetNames[0]);
+    document.getElementById('import-map-modal').classList.add('show');
+  } catch(err){
+    console.error(err);
+    showToast('⚠️ อ่านไฟล์ไม่สำเร็จ: '+err.message);
+  }
+}
+
+function onImportSheetChange(){
+  const sheetName = document.getElementById('import-sheet-select').value;
+  loadImportSheet(sheetName);
+}
+
+function loadImportSheet(sheetName){
+  const wb = importExcelState.workbook;
+  const ws = wb.Sheets[sheetName];
+  const json = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:false});
+  const rows = json.filter(r => r.some(c => String(c).trim() !== ''));
+  if(!rows.length){
+    showToast('⚠️ Sheet นี้ไม่มีข้อมูล');
+    return;
+  }
+  const headers = rows[0].map(h => String(h).trim());
+  const dataRows = rows.slice(1);
+
+  importExcelState.sheetName = sheetName;
+  importExcelState.headers = headers;
+  importExcelState.rows = dataRows;
+
+  document.getElementById('import-rowcount').textContent = dataRows.length;
+  renderImportMappingUI(headers, dataRows);
+}
+
+function guessColumnMatch(header, targetKey, targetLabel){
+  const h = header.toLowerCase().replace(/[^a-z0-9ก-๙]/g,'');
+  const guesses = {
+    date: ['date','วันที่','opentime','time','เวลา'],
+    symbol: ['symbol','pair','คู่เงิน','สินค้า'],
+    direction: ['direction','type','side','ทิศทาง','buysell'],
+    entry: ['entry','openprice','ราคาเข้า','entryprice'],
+    sl: ['sl','stoploss'],
+    tp: ['tp','takeprofit'],
+    exit: ['exit','closeprice','ราคาออก','exitprice'],
+    lot: ['lot','volume','size','ลอต'],
+    pnl: ['pnl','profit','pl','กำไร','ขาดทุน'],
+    rr: ['rr','riskreward'],
+    status: ['status','result','สถานะ','ผลลัพธ์'],
+    session: ['session'],
+    tf: ['tf','timeframe','กรอบเวลา'],
+    emotion: ['emotion','อารมณ์'],
+    rationale: ['rationale','reason','เหตุผล'],
+    lesson: ['lesson','note','บทเรียน','หมายเหตุ'],
+  };
+  const list = guesses[targetKey]||[];
+  return list.some(g => h.includes(g.replace(/[^a-z0-9ก-๙]/g,'')));
+}
+
+function renderImportMappingUI(headers, dataRows){
+  const container = document.getElementById('import-map-fields');
+  container.innerHTML = IMPORT_TARGET_FIELDS.map(field=>{
+    // เดาคอลัมน์ที่ตรงกันอัตโนมัติ
+    let guessedIdx = -1;
+    headers.forEach((h,i)=>{ if(guessedIdx===-1 && guessColumnMatch(h, field.key, field.label)) guessedIdx=i; });
+
+    const options = ['<option value="-1">— ไม่ใช้ —</option>']
+      .concat(headers.map((h,i)=>`<option value="${i}" ${i===guessedIdx?'selected':''}>${h||'(คอลัมน์ '+(i+1)+')'}</option>`));
+    return `<div class="map-field-row ${field.required?'required':''}">
+      <label>${field.label}${field.required?' *':''}</label>
+      <select id="map-${field.key}" onchange="updateImportPreview()">${options.join('')}</select>
+    </div>`;
+  }).join('');
+  updateImportPreview();
+}
+
+function updateImportPreview(){
+  const previewEl = document.getElementById('import-preview');
+  const row = importExcelState.rows[0];
+  if(!row){ previewEl.textContent='(ไม่มีข้อมูล)'; return; }
+  const parts = IMPORT_TARGET_FIELDS.map(field=>{
+    const sel = document.getElementById('map-'+field.key);
+    const idx = sel ? parseInt(sel.value) : -1;
+    if(idx<0) return null;
+    const val = row[idx];
+    return field.label+'="'+(val||'')+'"';
+  }).filter(Boolean);
+  previewEl.textContent = parts.join('  ·  ') || '(ยังไม่ได้แมปคอลัมน์ใดๆ)';
+}
+
+function closeImportMapModal(){
+  document.getElementById('import-map-modal').classList.remove('show');
+}
+document.getElementById('import-map-modal').addEventListener('click', function(e){
+  if(e.target===this) closeImportMapModal();
+});
+
+function excelDateToISO(val){
+  if(!val) return '';
+  // ถ้าเป็น Date object (จาก cellDates:true)
+  if(val instanceof Date && !isNaN(val)){
+    const p=n=>String(n).padStart(2,'0');
+    return val.getFullYear()+'-'+p(val.getMonth()+1)+'-'+p(val.getDate())+'T'+p(val.getHours())+':'+p(val.getMinutes());
+  }
+  // ถ้าเป็น string วันที่ทั่วไป ลอง parse
+  const parsed = new Date(val);
+  if(!isNaN(parsed)){
+    const p=n=>String(n).padStart(2,'0');
+    return parsed.getFullYear()+'-'+p(parsed.getMonth()+1)+'-'+p(parsed.getDate())+'T'+p(parsed.getHours()||0)+':'+p(parsed.getMinutes()||0);
+  }
+  return String(val);
+}
+
+function normalizeDirection(val){
+  const v = String(val||'').toUpperCase().trim();
+  if(/BUY|LONG|B\b/.test(v)) return 'BUY';
+  if(/SELL|SHORT|S\b/.test(v)) return 'SELL';
+  return 'BUY';
+}
+
+function normalizeStatus(val){
+  const v = String(val||'').toUpperCase().trim();
+  if(/WIN|กำไร|W\b/.test(v)) return 'Win';
+  if(/LOSS|ขาดทุน|L\b/.test(v)) return 'Loss';
+  if(/BE|BREAKEVEN|เท่าทุน/.test(v)) return 'BE';
+  if(/OPEN|เปิด/.test(v)) return 'Open';
+  if(/PENDING|รอ/.test(v)) return 'Pending';
+  return 'Pending';
+}
+
+function confirmImportExcel(){
+  const dateIdx = parseInt(document.getElementById('map-date').value);
+  const symIdx = parseInt(document.getElementById('map-symbol').value);
+
+  if(dateIdx<0 || symIdx<0){
+    showToast('⚠️ กรุณาแมปคอลัมน์ "วันที่" และ "Symbol" อย่างน้อย (จำเป็น)');
+    return;
+  }
+
+  const mapping = {};
+  IMPORT_TARGET_FIELDS.forEach(field=>{
+    const sel = document.getElementById('map-'+field.key);
+    const idx = sel ? parseInt(sel.value) : -1;
+    mapping[field.key] = idx;
+  });
+
+  const imported = importExcelState.rows.map(row=>{
+    const get = key => { const idx=mapping[key]; return idx>=0 ? row[idx] : ''; };
+    const getNum = key => { const v=get(key); const n=parseFloat(v); return isNaN(n)?null:n; };
+
+    const symbol = String(get('symbol')||'').trim().toUpperCase();
+    if(!symbol) return null;
+
+    return {
+      id: Date.now()+Math.random(),
+      date: excelDateToISO(get('date')),
+      symbol,
+      direction: normalizeDirection(get('direction')),
+      entry: getNum('entry'), sl: getNum('sl'), tp: getNum('tp'),
+      exit: getNum('exit'), lot: getNum('lot'), pnl: getNum('pnl'),
+      rr: String(get('rr')||''),
+      status: normalizeStatus(get('status')),
+      session: String(get('session')||''),
+      tf: String(get('tf')||''),
+      emotion: String(get('emotion')||''),
+      rationale: String(get('rationale')||''),
+      lesson: String(get('lesson')||''),
+      screenshots: [],
+    };
+  }).filter(Boolean);
+
+  if(!imported.length){
+    showToast('⚠️ ไม่พบข้อมูลที่ import ได้ — ตรวจสอบการแมปคอลัมน์อีกครั้ง');
+    return;
+  }
+
+  trades = [...trades, ...imported];
+  save(); renderTable(); updateQuickStats();
+  closeImportMapModal();
+  showToast('✅ Import จาก Excel สำเร็จ '+imported.length+' รายการ');
+}
+
+// ═══════ EXPORT EXCEL + ZIP ═══════
+async function exportExcelZip(customTrades){
+  const trades_src = customTrades || trades;
+  if(!trades_src.length){showToast('⚠️ ไม่มีข้อมูล');return;}
+  async function loadScript(src,chk){
+    if(window[chk])return;
+    return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s);});
+  }
+  try{
+    showToast('⏳ กำลังสร้างไฟล์…');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js','XLSX');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js','JSZip');
+    const zip=new JSZip();const imgFolder=zip.folder('images');
+    const dateStr=new Date().toISOString().slice(0,10);
+    const headers=['#','วันที่','Symbol','ทิศทาง','Session','TF','Entry','SL','TP','Exit','Lot','Risk%','P&L','R:R','MS','OB','FVG','Liquidity','P/D','Wave','WaveType','Div','Trend','สถานะ','อารมณ์','Plan','เหตุผล','บทเรียน','รูปภาพ'];
+    const rows=trades_src.map((t,i)=>{
+      let imgs='';
+      if(t.screenshots&&t.screenshots.length){
+        t.screenshots.forEach((s,si)=>{
+          const ext=s.data.includes('png')?'png':s.data.includes('webp')?'webp':'jpg';
+          const fn='trade_'+t.id+'_'+(si+1)+'.'+ext;
+          imgFolder.file(fn,s.data.split(',')[1],{base64:true});
+          imgs+=(imgs?', ':'')+fn;
+        });
+      }
+      return[i+1,t.date||'',t.symbol||'',t.direction||'',t.session||'',t.tf||'',
+        t.entry||'',t.sl||'',t.tp||'',t.exit||'',t.lot||'',t.risk||'',t.pnl||'',t.rr||'',
+        t.ms||'',t.ob||'',t.fvg||'',t.liq||'',t.pd||'',
+        t.wave||'',t.wavetype||'',t.div||'',t.trend||'',t.status||'',
+        t.emotion||'',t.rule||'',t.rationale||'',t.lesson||'',imgs];
+    });
+    const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
+    ws['!cols']=headers.map((_,i)=>({wch:[4,18,10,8,10,6,10,10,10,10,6,6,10,8,20,12,12,18,10,8,12,16,18,8,14,18,36,36,24][i]||12}));
+    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Trade Journal');
+    const bal=getBalance();const total=trades_src.reduce((a,t)=>a+(t.pnl||0),0);
+    const ws2=XLSX.utils.aoa_to_sheet([['สถิติสรุป',''],['Trades',trades_src.length],['Win',trades_src.filter(t=>t.status==='Win').length],['Loss',trades_src.filter(t=>t.status==='Loss').length],['Total P&L','$'+total.toFixed(2)],['Equity','$'+(bal+total).toFixed(2)]]);
+    ws2['!cols']=[{wch:20},{wch:16}];XLSX.utils.book_append_sheet(wb,ws2,'สถิติ');
+    const xlsBin=XLSX.write(wb,{bookType:'xlsx',type:'base64',cellStyles:true});
+    const suffix = customTrades ? '-filtered' : '';
+    zip.file('trade-journal'+suffix+'-'+dateStr+'.xlsx',xlsBin,{base64:true});
+    zip.file('README.txt','Trade Journal Export — '+dateStr+'\n\nไฟล์:\n- trade-journal'+suffix+'-'+dateStr+'.xlsx : ข้อมูล '+trades_src.length+' รายการ\n- images/ : รูปภาพ Screenshot\n\nวิธีใช้:\n1. แตก ZIP ไว้ใน folder เดียวกัน\n2. เปิด .xlsx ด้วย Excel\n3. คอลัมน์ "รูปภาพ" บอกชื่อไฟล์ใน images/');
+    const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='trade-journal'+suffix+'-'+dateStr+'.zip';a.click();
+    localStorage.setItem('tj-lastexport',Date.now());
+    showToast('✅ Export Excel+ZIP แล้ว ('+trades_src.length+' รายการ)');
+  }catch(err){showToast('⚠️ Export ไม่สำเร็จ: '+err.message);}
+}
+
+// ═══════ BACKUP ALERT ═══════
+function checkBackupAlert(){
+  const last=parseInt(localStorage.getItem('tj-lastexport')||'0');
+  const days7=7*24*60*60*1000;
+  const al=document.getElementById('backup-alert');
+  if(al)al.style.display=trades.length>0&&Date.now()-last>days7?'flex':'none';
+}
+
+// ═══════════════════════════════════════════════════════════
+// ═══ GOOGLE DRIVE SYNC SYSTEM ═══
+// ใช้ appDataFolder — พื้นที่ส่วนตัวของแอปใน Drive ผู้ใช้มองไม่เห็นในหน้า Drive ปกติ
+// ปลอดภัยกว่าการขอสิทธิ์เข้าถึงไฟล์ทั้งหมด
+// ═══════════════════════════════════════════════════════════
+let gdriveAccessToken = null;
+let gdriveTokenClient = null;
+let gdriveFileId = localStorage.getItem('tj-gdrive-fileid') || null;
+let gdriveSyncing = false;
+let gdrivePendingSync = false; // มีการแก้ไขระหว่าง sync อยู่ ต้อง sync ซ้ำอีกรอบ
+
+function isGdriveConfigured(){
+  return typeof GDRIVE_CLIENT_ID === 'string' && !GDRIVE_CLIENT_ID.includes('YOUR_CLIENT_ID_HERE');
+}
+
+function setGdriveButtonState(state, label){
+  const btn = document.getElementById('gdrive-btn');
+  const icon = document.getElementById('gdrive-icon');
+  const lbl = document.getElementById('gdrive-label');
+  if(!btn) return;
+  btn.className = 'btn-sm ' + (state||'');
+  if(icon) icon.innerHTML = state==='syncing' ? '<span class="spin-icon">🔄</span>'
+    : state==='connected' ? '✅'
+    : state==='error' ? '⚠️'
+    : '☁️';
+  if(lbl) lbl.textContent = label || 'Sign in with Google';
+}
+
+function showSyncBar(text, autohide){
+  const bar = document.getElementById('sync-status-bar');
+  const txt = document.getElementById('sync-status-text');
+  if(!bar) return;
+  bar.style.display = 'flex';
+  if(txt) txt.textContent = text;
+  if(autohide){
+    clearTimeout(window._syncBarTimer);
+    window._syncBarTimer = setTimeout(()=>{ bar.style.display='none'; }, 2500);
+  }
+}
+function hideSyncBar(){
+  const bar = document.getElementById('sync-status-bar');
+  if(bar) bar.style.display = 'none';
+}
+
+// ═══════ DEBUG PANEL — แสดง error แบบเต็ม ไม่ต้องพึ่ง Developer Tools ═══════
+function showDebugPanel(errorObj, context){
+  let panel = document.getElementById('debug-panel');
+  if(!panel){
+    panel = document.createElement('div');
+    panel.id = 'debug-panel';
+    panel.style.cssText = 'background:#3d1a1a;border:2px solid var(--red);border-radius:10px;'
+      + 'margin:12px 20px;padding:14px 16px;font-family:monospace;font-size:11px;'
+      + 'color:#fca5a5;max-height:340px;overflow-y:auto;white-space:pre-wrap;word-break:break-all';
+    const syncBar = document.getElementById('sync-status-bar');
+    syncBar.parentNode.insertBefore(panel, syncBar.nextSibling);
+  }
+  const isOnline = navigator.onLine;
+  const now = new Date().toLocaleString('th-TH');
+  const errName = errorObj?.name || 'Unknown';
+  const errMsg = errorObj?.message || String(errorObj);
+  const errStack = errorObj?.stack || '(ไม่มี stack trace)';
+  const diagnosis = diagnoseFetchError(errorObj);
+
+  panel.innerHTML =
+    '⚠️ DEBUG INFO — ' + context + '\n'
+    + '━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    + 'เวลา: ' + now + '\n'
+    + 'สถานะเน็ต (navigator.onLine): ' + (isOnline ? 'ออนไลน์ ✅' : 'ออฟไลน์ ❌') + '\n'
+    + 'URL หน้านี้: ' + window.location.href + '\n'
+    + 'Error name: ' + errName + '\n'
+    + 'Error message: ' + errMsg + '\n'
+    + (diagnosis ? '━━━━━━━━━━━━━━━━━━━━━━━━━\n' + diagnosis + '\n' : '')
+    + '━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    + 'Stack trace:\n' + errStack + '\n'
+    + '━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    + '💡 คัดลอกข้อความทั้งหมดนี้ (กดค้างแล้วเลือกทั้งหมด) ส่งให้ผู้ช่วยดูได้เลย';
+}
+function hideDebugPanel(){
+  const panel = document.getElementById('debug-panel');
+  if(panel) panel.remove();
+}
+
+// วิเคราะห์สาเหตุที่เป็นไปได้ของ error แบบเจาะจง เพื่อช่วยผู้ใช้แก้ไขเองได้
+function diagnoseFetchError(err){
+  const msg = (err?.message || '').toLowerCase();
+  if(msg.includes('failed to fetch')){
+    return '🔍 "Failed to fetch" หมายความว่า Request ออกจากเบราว์เซอร์ไม่ถึงปลายทางเลย\n'
+      + 'สาเหตุที่เป็นไปได้ (เรียงจากพบบ่อยสุด):\n'
+      + '1. ไม่มีอินเทอร์เน็ตจริงๆ ในขณะนั้น (เช็ค WiFi/มือถือเน็ต)\n'
+      + '2. มี Ad Blocker / Extension ในเบราว์เซอร์บล็อก googleapis.com\n'
+      + '3. เครือข่าย WiFi/บริษัท บล็อกการเข้าถึง Google APIs บางตัว\n'
+      + '4. DNS หรือ Firewall ของอุปกรณ์บล็อก\n\n'
+      + '✅ ลองวิธีนี้:\n'
+      + '- ปิด WiFi แล้วเปิดใหม่ หรือสลับไปใช้เน็ตมือถือ (4G/5G) แทน\n'
+      + '- ถ้าใช้ WiFi ที่ทำงาน/โรงเรียน ลองเน็ตมือถือแทนดู\n'
+      + '- ปิด Ad Blocker (ถ้ามี) แล้วลองใหม่\n'
+      + '- ลองเปิดเว็บ https://drive.google.com ปกติ ว่าเข้าได้ไหม (เทส Google ปิดกั้นเราหรือเปล่า)';
+  }
+  return '';
+}
+
+// ── เริ่มต้นระบบ (เรียกตอนโหลดหน้า) ──
+function initGoogleDrive(){
+  if(!isGdriveConfigured()){
+    setGdriveButtonState('', 'ยังไม่ได้ตั้งค่า Drive');
+    document.getElementById('gdrive-btn').title = 'ต้องตั้งค่า Google Client ID ก่อน (ดูคู่มือ GDRIVE_SETUP.md)';
+    return;
+  }
+  // รอ Google script โหลดเสร็จ
+  const checkReady = setInterval(()=>{
+    if(window.google && google.accounts && google.accounts.oauth2){
+      clearInterval(checkReady);
+      gdriveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GDRIVE_CLIENT_ID,
+        scope: GDRIVE_SCOPE,
+        callback: onGdriveTokenReceived,
+        error_callback: (err)=>{
+          console.error('Google OAuth error:', err);
+          setGdriveButtonState('error','เชื่อมต่อไม่สำเร็จ');
+          showToast('⚠️ เข้าสู่ระบบ Google ไม่สำเร็จ');
+        }
+      });
+      // เช็คว่ามี token เก่าที่ยังไม่หมดอายุไหม (เก็บใน sessionStorage เท่านั้น เพื่อความปลอดภัย)
+      const savedToken = sessionStorage.getItem('tj-gdrive-token');
+      const savedExp = parseInt(sessionStorage.getItem('tj-gdrive-token-exp')||'0');
+      if(savedToken && Date.now() < savedExp){
+        gdriveAccessToken = savedToken;
+        setGdriveButtonState('connected','เชื่อมต่อแล้ว');
+        // sync ครั้งแรกตอนเปิดแอป (ดึงข้อมูลล่าสุดจาก Drive มา merge)
+        syncFromDrive();
+      }
+    }
+  }, 200);
+  setTimeout(()=>clearInterval(checkReady), 10000); // เลิกรอหลัง 10 วิ
+}
+
+function handleDriveButtonClick(){
+  if(!isGdriveConfigured()){
+    showToast('⚠️ ยังไม่ได้ตั้งค่า Google Drive — ดูคู่มือ GDRIVE_SETUP.md');
+    return;
+  }
+  // เช็คว่าเปิดจากไฟล์ local (file://) หรือไม่ — Google OAuth ใช้งานไม่ได้บน file://
+  if(window.location.protocol === 'file:'){
+    showToast('⚠️ Google Sign-In ใช้งานไม่ได้กับไฟล์ที่เปิดจากเครื่องโดยตรง');
+    showDebugPanel(
+      new Error('window.location.protocol = "file:" — Google OAuth ต้องการเว็บที่มี URL แบบ https:// เท่านั้น'),
+      'ตรวจพบว่าเปิดไฟล์จากเครื่อง (file://) ไม่ใช่จากเว็บออนไลน์'
+    );
+    return;
+  }
+  if(gdriveAccessToken){
+    // ถ้าล็อกอินอยู่แล้ว กดปุ่มนี้ = sync มือ
+    syncToDrive(true);
+    return;
+  }
+  if(!gdriveTokenClient){
+    // ระบบยังโหลดไม่เสร็จ — อาจเป็นเพราะ Google script ยังโหลดไม่ทัน
+    showToast('⚠️ ระบบยังเชื่อมต่อ Google ไม่พร้อม กรุณารอสักครู่แล้วลองใหม่');
+    showDebugPanel(
+      new Error('gdriveTokenClient is null — initGoogleDrive() ยังทำงานไม่เสร็จตอนกดปุ่ม (Google script อาจโหลดช้าหรือถูกบล็อก)'),
+      'กดปุ่ม Sign in ก่อนระบบพร้อม'
+    );
+    return;
+  }
+  gdriveTokenClient.requestAccessToken({prompt: gdriveAccessToken?'':'consent'});
+}
+
+function onGdriveTokenReceived(resp){
+  if(resp.error){
+    setGdriveButtonState('error','เข้าสู่ระบบไม่สำเร็จ');
+    return;
+  }
+  gdriveAccessToken = resp.access_token;
+  // token อยู่ได้ประมาณ 1 ชม. — เก็บใน sessionStorage (หายเมื่อปิด browser เพื่อความปลอดภัย)
+  sessionStorage.setItem('tj-gdrive-token', gdriveAccessToken);
+  sessionStorage.setItem('tj-gdrive-token-exp', String(Date.now() + (resp.expires_in||3600)*1000 - 60000));
+  setGdriveButtonState('connected','เชื่อมต่อแล้ว');
+  showToast('✅ เชื่อมต่อ Google Drive สำเร็จ');
+  syncFromDrive(); // ดึงข้อมูลจาก Drive มา merge ทันทีหลัง sign in
+}
+
+function signOutGoogleDrive(){
+  if(gdriveAccessToken){
+    google.accounts.oauth2.revoke(gdriveAccessToken, ()=>{});
+  }
+  gdriveAccessToken = null;
+  sessionStorage.removeItem('tj-gdrive-token');
+  sessionStorage.removeItem('tj-gdrive-token-exp');
+  setGdriveButtonState('', 'Sign in with Google');
+  showToast('ออกจากระบบ Google Drive แล้ว');
+}
+
+// ── หาไฟล์ข้อมูลใน appDataFolder (สร้างใหม่ถ้ายังไม่มี) ──
+async function findOrCreateGdriveFile(){
+  const headers = {'Authorization':'Bearer '+gdriveAccessToken};
+  // ถ้ามี fileId เก่าอยู่แล้ว เช็คว่ายังใช้ได้ไหม
+  if(gdriveFileId){
+    const check = await fetch(`https://www.googleapis.com/drive/v3/files/${gdriveFileId}?fields=id`, {headers});
+    if(check.ok) return gdriveFileId;
+    gdriveFileId = null; // ไฟล์เก่าถูกลบไปแล้ว หาใหม่
+  }
+  // ค้นหาไฟล์ตามชื่อใน appDataFolder
+  const searchRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${GDRIVE_FILENAME}'&fields=files(id,name)`,
+    {headers}
+  );
+  if(!searchRes.ok){
+    const errBody = await searchRes.json().catch(()=>({}));
+    const msg = errBody?.error?.message || ('HTTP '+searchRes.status);
+    throw new Error('Drive search failed: '+msg);
+  }
+  const searchData = await searchRes.json();
+  if(searchData.files && searchData.files.length){
+    gdriveFileId = searchData.files[0].id;
+    localStorage.setItem('tj-gdrive-fileid', gdriveFileId);
+    return gdriveFileId;
+  }
+  // ไม่เจอ สร้างไฟล์ใหม่เปล่าๆ
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: {...headers, 'Content-Type':'application/json'},
+    body: JSON.stringify({name: GDRIVE_FILENAME, parents:['appDataFolder']})
+  });
+  if(!createRes.ok){
+    const errBody = await createRes.json().catch(()=>({}));
+    const msg = errBody?.error?.message || ('HTTP '+createRes.status);
+    throw new Error('Drive create file failed: '+msg);
+  }
+  const createData = await createRes.json();
+  gdriveFileId = createData.id;
+  localStorage.setItem('tj-gdrive-fileid', gdriveFileId);
+  return gdriveFileId;
+}
+
+// ── ดึงข้อมูลจาก Drive มา Merge กับข้อมูล local ──
+async function syncFromDrive(){
+  if(!gdriveAccessToken || gdriveSyncing) return;
+  gdriveSyncing = true;
+  setGdriveButtonState('syncing','กำลังซิงก์...');
+  showSyncBar('🔄 กำลังดึงข้อมูลจาก Google Drive...');
+  try{
+    const fileId = await findOrCreateGdriveFile();
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      {headers:{'Authorization':'Bearer '+gdriveAccessToken}});
+
+    if(res.ok){
+      const text = await res.text();
+      if(text && text.trim()){
+        const remote = JSON.parse(text);
+        mergeRemoteData(remote);
+      }
+    }
+    setGdriveButtonState('connected','เชื่อมต่อแล้ว');
+    showSyncBar('✅ ซิงก์ข้อมูลสำเร็จ', true);
+    hideDebugPanel();
+    localStorage.setItem('tj-gdrive-lastsync', Date.now());
+  } catch(err){
+    console.error('Sync from Drive failed:', err);
+    setGdriveButtonState('error','ซิงก์ไม่สำเร็จ');
+    showSyncBar('⚠️ '+(err.message || 'ซิงก์ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต'));
+    showDebugPanel(err, 'syncFromDrive (ดึงข้อมูลจาก Drive)');
+  } finally {
+    gdriveSyncing = false;
+    if(gdrivePendingSync){ gdrivePendingSync=false; syncToDrive(); }
+  }
+}
+
+// ── Merge ข้อมูลจาก Drive เข้ากับข้อมูล local ──
+// กลยุทธ์: รวมเทรดทั้งหมดโดยไม่ซ้ำ id, ถ้า id ซ้ำใช้ตัวที่แก้ไขล่าสุด (updatedAt มากกว่า)
+function mergeRemoteData(remote){
+  if(!remote || typeof remote !== 'object') return;
+
+  // Merge trades
+  if(Array.isArray(remote.trades)){
+    const localMap = new Map(trades.map(t=>[String(t.id), t]));
+    remote.trades.forEach(rt=>{
+      const key = String(rt.id);
+      const lt = localMap.get(key);
+      if(!lt){
+        localMap.set(key, rt); // ไม่มีใน local เพิ่มเข้าไป
+      } else {
+        const rtTime = rt.updatedAt || 0, ltTime = lt.updatedAt || 0;
+        if(rtTime > ltTime) localMap.set(key, rt); // remote ใหม่กว่า ใช้ตัว remote
+      }
+    });
+    trades = Array.from(localMap.values());
+    save();
+  }
+
+  // Merge fund transactions (deposit/withdraw)
+  if(Array.isArray(remote.fundTxs)){
+    const localTx = getFundTxs();
+    const txMap = new Map(localTx.map(t=>[String(t.id), t]));
+    remote.fundTxs.forEach(rt=>{ if(!txMap.has(String(rt.id))) txMap.set(String(rt.id), rt); });
+    localStorage.setItem('tj-fundtx', JSON.stringify(Array.from(txMap.values())));
+  }
+
+  // Merge bias (ใช้ล่าสุดถ้าชนกัน)
+  if(remote.bias && typeof remote.bias==='object'){
+    const localBias = JSON.parse(localStorage.getItem('tj-bias')||'{}');
+    Object.entries(remote.bias).forEach(([k,v])=>{ if(!localBias[k]) localBias[k]=v; });
+    localStorage.setItem('tj-bias', JSON.stringify(localBias));
+  }
+
+  // Starting balance — ใช้ค่าจาก remote ถ้า local ยังไม่เคยตั้งเอง
+  if(remote.startBal && !localStorage.getItem('tj-bal-manually-set')){
+    localStorage.setItem('tj-bal', remote.startBal);
+    const el=document.getElementById('starting-balance');
+    if(el) el.value = remote.startBal;
+  }
+
+  // Refresh UI ทั้งหมดหลัง merge
+  renderTable(); updateQuickStats();
+  if(document.getElementById('tab-stats')?.classList.contains('active')) renderStats();
+  if(document.getElementById('tab-calendar')?.classList.contains('active')) renderCalendar();
+  renderBias();
+}
+
+// ── อัปโหลดข้อมูล local ทั้งหมดขึ้น Drive ──
+async function syncToDrive(isManual){
+  if(!gdriveAccessToken){
+    if(isManual) showToast('⚠️ กรุณา Sign in ก่อน');
+    return;
+  }
+  if(gdriveSyncing){ gdrivePendingSync = true; return; } // กำลัง sync อยู่ รอคิว
+
+  gdriveSyncing = true;
+  setGdriveButtonState('syncing','กำลังซิงก์...');
+  if(isManual) showSyncBar('🔄 กำลังอัปโหลดข้อมูล...');
+
+  try{
+    const fileId = await findOrCreateGdriveFile();
+    const payload = {
+      trades: trades,
+      fundTxs: getFundTxs(),
+      bias: JSON.parse(localStorage.getItem('tj-bias')||'{}'),
+      startBal: getInitialBalance(),
+      lastUpdated: Date.now(),
+      deviceId: getDeviceId()
+    };
+
+    const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+      method: 'PATCH',
+      headers: {'Authorization':'Bearer '+gdriveAccessToken, 'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+
+    if(!res.ok) throw new Error('Upload failed: '+res.status);
+
+    setGdriveButtonState('connected','เชื่อมต่อแล้ว');
+    if(isManual) showSyncBar('✅ อัปโหลดสำเร็จ', true); else hideSyncBar();
+    hideDebugPanel();
+    localStorage.setItem('tj-gdrive-lastsync', Date.now());
+    localStorage.removeItem('tj-gdrive-offline-queue'); // เคลียร์คิว offline ถ้ามี
+
+  } catch(err){
+    console.error('Sync to Drive failed:', err);
+    setGdriveButtonState('error','ซิงก์ไม่สำเร็จ');
+    showSyncBar('⚠️ '+(err.message || 'ไม่มีอินเทอร์เน็ต — บันทึกไว้ในเครื่อง จะซิงก์เมื่อออนไลน์'));
+    showDebugPanel(err, 'syncToDrive (อัปโหลดข้อมูลขึ้น Drive)');
+    localStorage.setItem('tj-gdrive-offline-queue', '1'); // มีข้อมูลค้าง sync
+  } finally {
+    gdriveSyncing = false;
+    if(gdrivePendingSync){ gdrivePendingSync=false; syncToDrive(); }
+  }
+}
+
+function getDeviceId(){
+  let id = localStorage.getItem('tj-device-id');
+  if(!id){
+    id = 'device-'+Math.random().toString(36).slice(2,10);
+    localStorage.setItem('tj-device-id', id);
+  }
+  return id;
+}
+
+// ── เรียก sync อัตโนมัติทุกครั้งที่มีการบันทึกข้อมูล (debounce กันยิงถี่เกินไป) ──
+let _syncDebounceTimer = null;
+function triggerAutoSync(){
+  if(!gdriveAccessToken) return; // ยังไม่ได้ล็อกอิน ไม่ต้อง sync
+  clearTimeout(_syncDebounceTimer);
+  _syncDebounceTimer = setTimeout(()=>{ syncToDrive(false); }, 1500);
+}
+
+// ── เมื่อกลับมามีเน็ตอีกครั้ง ให้ sync คิวที่ค้างไว้ทันที ──
+window.addEventListener('online', ()=>{
+  if(gdriveAccessToken && localStorage.getItem('tj-gdrive-offline-queue')){
+    showToast('🌐 อินเทอร์เน็ตกลับมาแล้ว กำลังซิงก์ข้อมูล...');
+    syncToDrive(true);
+  }
+});
+window.addEventListener('offline', ()=>{
+  if(gdriveAccessToken) showSyncBar('📴 ออฟไลน์ — ข้อมูลจะซิงก์อัตโนมัติเมื่อกลับมามีเน็ต');
+});
+
+// ── Hook เข้ากับฟังก์ชัน save() เดิม เพื่อ auto-sync ทุกครั้งที่บันทึกเทรด ──
+const _originalSave = save;
+save = function(){
+  _originalSave();
+  triggerAutoSync();
+};
+
+
+const now=new Date();
+document.getElementById('f-date-d').value=fmtDateInput(now);
+document.getElementById('f-date-t').value=localStorage.getItem('tj-lasttime')||fmtTimeInput(now);
+syncDateTime();
+const savedBal=localStorage.getItem('tj-bal');
+if(savedBal)document.getElementById('starting-balance').value=savedBal;
+
+// เริ่มระบบ Google Drive Sync
+initGoogleDrive();
+// ═══ LANGUAGE SYSTEM ═══
+let currentLang = localStorage.getItem('tj-lang') || 'th';
+
+const i18n = {
+  // Tabs
+  "tab_log":     { th:"📋 บันทึก",   en:"📋 Log" },
+  "tab_history": { th:"📊 ประวัติ",   en:"📊 History" },
+  "tab_stats":   { th:"📈 สถิติ",     en:"📈 Statistics" },
+  "tab_cal":     { th:"🗓 ปฏิทิน",    en:"🗓 Calendar" },
+  // Form titles & sections
+  "form_title":  { th:"บันทึกเทรดใหม่",          en:"New Trade Entry" },
+  "sec_smc":     { th:"⚡ SMC Analysis",          en:"⚡ SMC Analysis" },
+  "sec_ew":      { th:"🌊 Elliott Wave (SRISIAM)", en:"🌊 Elliott Wave (SRISIAM)" },
+  "sec_psy":     { th:"🧠 Psychology & Status",   en:"🧠 Psychology & Status" },
+  "sec_shot":    { th:"📷 แนบ Screenshot กราฟ",   en:"📷 Attach Chart Screenshot" },
+  "sec_bias":    { th:"📅 Daily Bias ประจำสัปดาห์", en:"📅 Weekly Daily Bias" },
+  // Labels
+  "lbl_date":       { th:"วันที่",              en:"Date" },
+  "lbl_dir":        { th:"ทิศทาง",              en:"Direction" },
+  "lbl_lot":        { th:"Lot Size",             en:"Lot Size" },
+  "lbl_risk":       { th:"Risk % ต่อเทรด",       en:"Risk % per Trade" },
+  "lbl_risk_amt":   { th:"Risk Amount ($)",      en:"Risk Amount ($)" },
+  "lbl_entry":      { th:"Entry Price",          en:"Entry Price" },
+  "lbl_sl":         { th:"Stop Loss",            en:"Stop Loss" },
+  "lbl_tp":         { th:"Take Profit",          en:"Take Profit" },
+  "lbl_exit":       { th:"Exit Price",           en:"Exit Price" },
+  "lbl_rr":         { th:"R:R Ratio",            en:"R:R Ratio" },
+  "lbl_status":     { th:"สถานะออเดอร์",          en:"Order Status" },
+  "lbl_emotion":    { th:"อารมณ์ขณะเทรด",         en:"Emotion while Trading" },
+  "lbl_plan":       { th:"ปฏิบัติตาม Plan?",     en:"Followed Plan?" },
+  "lbl_rationale":  { th:"เหตุผลที่เข้าเทรด",     en:"Trade Rationale" },
+  "lbl_lesson":     { th:"บทเรียน / Lesson Learned", en:"Lesson Learned" },
+  // Buttons
+  "btn_save":    { th:"💾 บันทึกเทรด",   en:"💾 Save Trade" },
+  "btn_clear":   { th:"🗑 ล้างฟอร์ม",    en:"🗑 Clear Form" },
+  "btn_import":  { th:"⬆ Import CSV",    en:"⬆ Import CSV" },
+  "btn_export":  { th:"⬇ Export…",       en:"⬇ Export…" },
+  "btn_delall":  { th:"🗑 ลบทั้งหมด",    en:"🗑 Delete All" },
+  // Stat labels
+  "stat_equity": { th:"Equity",          en:"Equity" },
+  "stat_wr":     { th:"Win Rate",        en:"Win Rate" },
+  "stat_pnl":    { th:"Total P&L",       en:"Total P&L" },
+  "stat_mdd":    { th:"Max DD",          en:"Max DD" },
+  "stat_rr":     { th:"Avg R:R",         en:"Avg R:R" },
+  "stat_trades": { th:"Trades",          en:"Trades" },
+  // Backup alert
+  "backup_msg":  { th:"ยังไม่ได้ Export ข้อมูลนานกว่า 7 วัน — แนะนำให้ Backup",
+                   en:"No export for over 7 days — Please backup your data" },
+  "backup_btn":  { th:"Export ตอนนี้",   en:"Export Now" },
+};
+
+function changeLang(lang) {
+  currentLang = lang;
+  localStorage.setItem('tj-lang', lang);
+  const thBtn = document.getElementById('lang-th');
+  const enBtn = document.getElementById('lang-en');
+  if (thBtn) thBtn.classList.toggle('active', lang === 'th');
+  if (enBtn) enBtn.classList.toggle('active', lang === 'en');
+  applyTranslations();
+  showToast(lang === 'th' ? '✅ เปลี่ยนเป็นภาษาไทย' : '✅ Changed to English');
+}
+
+function t(key) {
+  return i18n[key]?.[currentLang] || key;
+}
+
+function applyTranslations() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    el.textContent = t(key);
+  });
+}
+
+// Apply เลยตอน init (ไม่ต้องรอ DOMContentLoaded เพราะ script นี้อยู่ท้าย body แล้ว)
+(function initLang(){
+  const thBtn = document.getElementById('lang-th');
+  const enBtn = document.getElementById('lang-en');
+  if (currentLang === 'th' && thBtn) thBtn.classList.add('active');
+  if (currentLang === 'en' && enBtn) enBtn.classList.add('active');
+  applyTranslations();
+})();
+</script>
+</body>
+</html>
