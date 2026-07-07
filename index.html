@@ -2549,20 +2549,29 @@ function initGoogleDrive(){
     document.getElementById('gdrive-btn').title = 'ต้องตั้งค่า Google Client ID ก่อน (ดูคู่มือ GDRIVE_SETUP.md)';
     return;
   }
+  setGdriveButtonState('syncing', 'กำลังเตรียมระบบ...');
   // รอ Google script โหลดเสร็จ
+  const startTime = Date.now();
   const checkReady = setInterval(()=>{
     if(window.google && google.accounts && google.accounts.oauth2){
       clearInterval(checkReady);
-      gdriveTokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: GDRIVE_CLIENT_ID,
-        scope: GDRIVE_SCOPE,
-        callback: onGdriveTokenReceived,
-        error_callback: (err)=>{
-          console.error('Google OAuth error:', err);
-          setGdriveButtonState('error','เชื่อมต่อไม่สำเร็จ');
-          showToast('⚠️ เข้าสู่ระบบ Google ไม่สำเร็จ');
-        }
-      });
+      try {
+        gdriveTokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: GDRIVE_CLIENT_ID,
+          scope: GDRIVE_SCOPE,
+          callback: onGdriveTokenReceived,
+          error_callback: (err)=>{
+            console.error('Google OAuth error:', err);
+            setGdriveButtonState('error','เชื่อมต่อไม่สำเร็จ');
+            showToast('⚠️ เข้าสู่ระบบ Google ไม่สำเร็จ');
+          }
+        });
+        setGdriveButtonState('', 'Sign in with Google');
+      } catch(initErr) {
+        setGdriveButtonState('error', 'เตรียมระบบไม่สำเร็จ');
+        showDebugPanel(initErr, 'initTokenClient() ล้มเหลว — Client ID อาจไม่ถูกต้อง หรือยังไม่ได้เพิ่ม URL นี้ใน Authorized JavaScript origins');
+        return;
+      }
       // เช็คว่ามี token เก่าที่ยังไม่หมดอายุไหม (เก็บใน sessionStorage เท่านั้น เพื่อความปลอดภัย)
       const savedToken = sessionStorage.getItem('tj-gdrive-token');
       const savedExp = parseInt(sessionStorage.getItem('tj-gdrive-token-exp')||'0');
@@ -2572,9 +2581,16 @@ function initGoogleDrive(){
         // sync ครั้งแรกตอนเปิดแอป (ดึงข้อมูลล่าสุดจาก Drive มา merge)
         syncFromDrive();
       }
+    } else if(Date.now() - startTime > 8000) {
+      // รอเกิน 8 วินาทีแล้วยังไม่พร้อม — สคริปต์ Google โหลดไม่สำเร็จแน่นอน
+      clearInterval(checkReady);
+      setGdriveButtonState('error', 'โหลด Google ไม่สำเร็จ');
+      showDebugPanel(
+        new Error('รอ Google script (accounts.google.com/gsi/client) นานเกิน 8 วินาที แต่ window.google ยังไม่พร้อมใช้งาน'),
+        'สคริปต์ Google โหลดไม่สำเร็จ — เครือข่ายอาจบล็อก accounts.google.com หรือมี Ad Blocker/Extension ขัดขวาง หรือกำลังเปิดในกรอบ Preview ที่บล็อก external script (เช่น artifact ใน Claude)'
+      );
     }
   }, 200);
-  setTimeout(()=>clearInterval(checkReady), 10000); // เลิกรอหลัง 10 วิ
 }
 
 function handleDriveButtonClick(){
@@ -2597,12 +2613,7 @@ function handleDriveButtonClick(){
     return;
   }
   if(!gdriveTokenClient){
-    // ระบบยังโหลดไม่เสร็จ — อาจเป็นเพราะ Google script ยังโหลดไม่ทัน
-    showToast('⚠️ ระบบยังเชื่อมต่อ Google ไม่พร้อม กรุณารอสักครู่แล้วลองใหม่');
-    showDebugPanel(
-      new Error('gdriveTokenClient is null — initGoogleDrive() ยังทำงานไม่เสร็จตอนกดปุ่ม (Google script อาจโหลดช้าหรือถูกบล็อก)'),
-      'กดปุ่ม Sign in ก่อนระบบพร้อม'
-    );
+    showToast('⚠️ ระบบยังเชื่อมต่อ Google ไม่พร้อม — ดูรายละเอียดในกล่องแดงด้านล่าง (ถ้ามี) หรือลองรีเฟรชหน้าใหม่');
     return;
   }
   gdriveTokenClient.requestAccessToken({prompt: gdriveAccessToken?'':'consent'});
