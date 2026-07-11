@@ -813,6 +813,14 @@ tr:hover td{background:rgba(255,255,255,.02)}
                font-size:11px;padding:2px 6px;border-radius:4px"></select>
     </div>
 
+    <div id="exness-detected-banner" style="display:none;background:var(--accent-dim);
+         border:1px solid var(--accent);border-radius:8px;padding:10px 12px;
+         margin-bottom:14px;font-size:12px;color:var(--accent)">
+      ✅ ตรวจพบไฟล์จาก <b>Exness Personal Area</b> — จับคู่คอลัมน์ให้อัตโนมัติแล้ว
+      (สถานะ Win/Loss คำนวณจากกำไร/ขาดทุนจริง เพราะไฟล์นี้ไม่มีคอลัมน์สถานะโดยตรง
+      และตัด "m" ท้ายชื่อ Symbol ให้ เช่น XAUUSDm → XAUUSD)
+    </div>
+
     <div id="import-map-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;
          max-height:44vh;overflow-y:auto;padding-right:4px;margin-bottom:14px"></div>
 
@@ -2241,33 +2249,88 @@ function loadImportSheet(sheetName){
 function guessColumnMatch(header, targetKey, targetLabel){
   const h = header.toLowerCase().replace(/[^a-z0-9ก-๙]/g,'');
   const guesses = {
-    date: ['date','วันที่','opentime','time','เวลา'],
+    date: ['date','วันที่','opentime','time','เวลา','openingtimeutc','openingtime'],
     symbol: ['symbol','pair','คู่เงิน','สินค้า'],
     direction: ['direction','type','side','ทิศทาง','buysell'],
-    entry: ['entry','openprice','ราคาเข้า','entryprice'],
-    sl: ['sl','stoploss'],
-    tp: ['tp','takeprofit'],
-    exit: ['exit','closeprice','ราคาออก','exitprice'],
-    lot: ['lot','volume','size','ลอต'],
-    pnl: ['pnl','profit','pl','กำไร','ขาดทุน'],
-    rr: ['rr','riskreward'],
-    status: ['status','result','สถานะ','ผลลัพธ์'],
+    entry: ['entry','openprice','ราคาเข้า','entryprice','openingprice'],
+    sl: ['stoploss'], // ตัด 'sl' เดี่ยวๆ ออก เพราะสั้นเกินไป เสี่ยง false-match กับคำอื่นที่มี "sl" ซ่อนอยู่
+    tp: ['takeprofit'], // ตัด 'tp' เดี่ยวๆ ออกด้วยเหตุผลเดียวกัน
+    exit: ['exit','closeprice','ราคาออก','exitprice','closingprice'],
+    lot: ['lots','lotsize','volume','ลอต'], // เช็คคำเฉพาะเจาะจงก่อน กัน original_position_size แย่งคอลัมน์ผิด
+    pnl: ['profit','กำไร','ขาดทุน'], // ตัด 'pnl' และ 'pl' ออก เพราะ 'pl' เป็น substring ของ stoploss/takeprofit ทำให้ guess ผิด
+    rr: ['riskreward'],
+    status: ['status','result','สถานะ','ผลลัพธ์'], // ตัด 'closereason' ออก — Exness ใช้ค่า user/sl/tp ไม่ใช่ Win/Loss จึงคำนวณจาก P&L แทนดีกว่า
     session: ['session'],
-    tf: ['tf','timeframe','กรอบเวลา'],
+    tf: ['timeframe','กรอบเวลา'],
     emotion: ['emotion','อารมณ์'],
-    rationale: ['rationale','reason','เหตุผล'],
+    rationale: ['rationale','เหตุผล'], // ตัด 'reason' เดี่ยวๆ ออก กัน false-match กับ close_reason ของ Exness
     lesson: ['lesson','note','บทเรียน','หมายเหตุ'],
   };
   const list = guesses[targetKey]||[];
   return list.some(g => h.includes(g.replace(/[^a-z0-9ก-๙]/g,'')));
 }
 
+// ── ตรวจจับไฟล์ Exness Personal Area โดยเฉพาะ ──
+// คอลัมน์เฉพาะของ Exness: opening_time_utc, closing_time_utc, lots, symbol,
+// opening_price, closing_price, stop_loss, take_profit, commission, swap, profit, close_reason
+function detectExnessFormat(headers){
+  const norm = headers.map(h => h.toLowerCase().trim());
+  const exnessMarkers = ['opening_time_utc','closing_time_utc','close_reason','original_position_size'];
+  const matchCount = exnessMarkers.filter(m => norm.includes(m)).length;
+  return matchCount >= 2; // เจออย่างน้อย 2 คอลัมน์เฉพาะของ Exness ถือว่าใช่แน่นอน
+}
+
 function renderImportMappingUI(headers, dataRows){
+  const isExness = detectExnessFormat(headers);
   const container = document.getElementById('import-map-fields');
+
+  // แสดงป้ายแจ้งเตือนถ้าตรวจพบว่าเป็นไฟล์ Exness — ช่วยให้ผู้ใช้มั่นใจว่าระบบรู้จักไฟล์นี้
+  let banner = document.getElementById('exness-detect-banner');
+  if(isExness){
+    if(!banner){
+      banner = document.createElement('div');
+      banner.id = 'exness-detect-banner';
+      banner.style.cssText = 'background:var(--accent-dim);border:1px solid var(--accent);'
+        + 'border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;'
+        + 'color:var(--accent);display:flex;align-items:center;gap:8px';
+      const fieldsEl = document.getElementById('import-map-fields');
+      fieldsEl.parentNode.insertBefore(banner, fieldsEl);
+    }
+    banner.innerHTML = '✅ ตรวจพบไฟล์จาก <b>Exness Personal Area</b> — จับคู่คอลัมน์ให้อัตโนมัติแล้ว '
+      + '(ล้าง suffix "m" ออกจากชื่อ Symbol และคำนวณ Win/Loss จากกำไร/ขาดทุนจริงให้)';
+  } else if(banner){
+    banner.remove();
+  }
+
   container.innerHTML = IMPORT_TARGET_FIELDS.map(field=>{
-    // เดาคอลัมน์ที่ตรงกันอัตโนมัติ
     let guessedIdx = -1;
-    headers.forEach((h,i)=>{ if(guessedIdx===-1 && guessColumnMatch(h, field.key, field.label)) guessedIdx=i; });
+
+    // สำหรับไฟล์ Exness: เช็ค exact-match กับชื่อคอลัมน์ที่รู้จักแน่นอนก่อนเป็นอันดับแรก
+    // (แม่นยำกว่า fuzzy guess ทั่วไป ป้องกันปัญหาเช่น "profit" ไป match "take_profit" ผิด)
+    if(isExness){
+      const exnessExactMap = {
+        date: 'opening_time_utc',
+        symbol: 'symbol',
+        direction: 'type',
+        entry: 'opening_price',
+        sl: 'stop_loss',
+        tp: 'take_profit',
+        exit: 'closing_price',
+        lot: 'lots',
+        pnl: 'profit',
+        status: 'close_reason', // จะถูกแปลงเป็น Win/Loss จาก P&L จริงตอน import เพราะ close_reason ไม่ใช่คำที่รู้จัก
+      };
+      const target = exnessExactMap[field.key];
+      if(target){
+        const idx = headers.findIndex(h => h.toLowerCase().trim() === target);
+        if(idx >= 0) guessedIdx = idx;
+      }
+    }
+
+    // ถ้าไม่ใช่ไฟล์ Exness หรือ field นี้ไม่มี exact-map เฉพาะ ใช้ fuzzy guess ทั่วไปแทน
+    if(guessedIdx === -1){
+      headers.forEach((h,i)=>{ if(guessedIdx===-1 && guessColumnMatch(h, field.key, field.label)) guessedIdx=i; });
+    }
 
     const options = ['<option value="-1">— ไม่ใช้ —</option>']
       .concat(headers.map((h,i)=>`<option value="${i}" ${i===guessedIdx?'selected':''}>${h||'(คอลัมน์ '+(i+1)+')'}</option>`));
@@ -2333,6 +2396,33 @@ function normalizeStatus(val){
   return 'Pending';
 }
 
+// ล้าง suffix ที่ broker บางเจ้าใส่ต่อท้ายชื่อ symbol เช่น XAUUSDm(mini), XAUUSDc(cent), EURUSD.pro, BTCUSD_zero
+// เพื่อให้ตรงกับ format มาตรฐานที่ TradingView/ระบบอื่นใช้
+// สำคัญ: symbol บางตัวลงท้ายด้วยตัวอักษรที่ตรงกับ suffix โดยบังเอิญ (เช่น USTEC ลงท้าย C จริงๆ ไม่ใช่ suffix)
+// จึงเช็ค whitelist ของ symbol แท้ๆ ก่อนเสมอ ถ้าตรงกับตัวใดตัวหนึ่งในนี้ = คืนค่าเดิมทันที ไม่ต้องตัดอะไร
+const KNOWN_EXACT_SYMBOLS = [
+  'USTEC','US30','US500','UK100','GER40','JP225','FRA40','AUS200','ESP35','EU50', // Index
+  'XTIUSD','XBRUSD','NGAS', // Energy (บาง broker เขียนแบบนี้แทน USOIL/UKOIL)
+];
+function cleanBrokerSymbol(sym){
+  let s = String(sym||'').trim().toUpperCase();
+  if(KNOWN_EXACT_SYMBOLS.includes(s)) return s; // ตรงกับ symbol แท้ๆ พอดี ไม่ต้องตัด suffix
+  const knownSuffixes = ['MICRO','MINI','ZERO','RAW','PRO','M','C']; // เรียงยาว→สั้น กัน "MICRO" โดนตัดผิดจาก "M" ก่อน
+  for(const suf of knownSuffixes){
+    const re = new RegExp('[._-]?'+suf+'$');
+    if(re.test(s)){ s = s.replace(re, ''); break; }
+  }
+  return s.trim();
+}
+
+// ตัดสิน Win/Loss/BE จากตัวเลข P&L จริง — ใช้ตอนไฟล์ไม่มีคอลัมน์สถานะที่อ่านง่าย (เช่น Exness ที่มีแค่ close_reason)
+function statusFromPnL(pnl){
+  if(pnl === null || pnl === undefined || isNaN(pnl)) return 'Pending';
+  if(pnl > 0) return 'Win';
+  if(pnl < 0) return 'Loss';
+  return 'BE';
+}
+
 function confirmImportExcel(){
   const dateIdx = parseInt(document.getElementById('map-date').value);
   const symIdx = parseInt(document.getElementById('map-symbol').value);
@@ -2349,12 +2439,33 @@ function confirmImportExcel(){
     mapping[field.key] = idx;
   });
 
-  const imported = importExcelState.rows.map(row=>{
-    const get = key => { const idx=mapping[key]; return idx>=0 ? row[idx] : ''; };
-    const getNum = key => { const v=get(key); const n=parseFloat(v); return isNaN(n)?null:n; };
+  // DEBUG: Log mapping ให้ทราบว่าคอลัมน์ไหนแมปเข้าไป
+  console.log('[Import] Mapping indices:', mapping);
+  console.log('[Import] First row sample:', importExcelState.rows[0]);
 
-    const symbol = String(get('symbol')||'').trim().toUpperCase();
+  const imported = importExcelState.rows.map(row=>{
+    const get = key => { 
+      const idx = mapping[key]; 
+      if(idx < 0) return ''; // ✓ explicit check index >= 0
+      return String(row[idx]||'').trim(); // ✓ convert เป็น string + trim
+    };
+    const getNum = key => { 
+      const v = get(key); 
+      if(v === '') return null; // ✓ explicit empty string check
+      const n = parseFloat(v); 
+      return isNaN(n) ? null : n; 
+    };
+
+    const rawSymbol = get('symbol');
+    const symbol = cleanBrokerSymbol(rawSymbol);
     if(!symbol) return null;
+
+    const pnl = getNum('pnl');
+    const rawStatus = get('status');
+    // ถ้า status ที่ map มาไม่ใช่คำที่รู้จัก (Win/Loss/Open ฯลฯ) เช่น "user","sl","tp" ของ Exness
+    // ให้คำนวณจาก P&L จริงแทน แม่นยำกว่า
+    const knownStatusWords = /WIN|LOSS|OPEN|PENDING|BE|BREAKEVEN|กำไร|ขาดทุน|เปิด|รอ|เท่าทุน/i;
+    const status = knownStatusWords.test(rawStatus) ? normalizeStatus(rawStatus) : statusFromPnL(pnl);
 
     return {
       id: Date.now()+Math.random(),
@@ -2362,9 +2473,9 @@ function confirmImportExcel(){
       symbol,
       direction: normalizeDirection(get('direction')),
       entry: getNum('entry'), sl: getNum('sl'), tp: getNum('tp'),
-      exit: getNum('exit'), lot: getNum('lot'), pnl: getNum('pnl'),
+      exit: getNum('exit'), lot: getNum('lot'), pnl,
       rr: String(get('rr')||''),
-      status: normalizeStatus(get('status')),
+      status,
       session: String(get('session')||''),
       tf: String(get('tf')||''),
       emotion: String(get('emotion')||''),
