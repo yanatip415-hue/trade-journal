@@ -1216,11 +1216,32 @@ function clearForm(){
 // ═══════ SCREENSHOT ═══════
 function onShotFile(input){Array.from(input.files).forEach(f=>readShot(f,false));input.value='';}
 function onShotDrop(e){e.preventDefault();Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('image/')).forEach(f=>readShot(f,false));}
+// บีบอัดรูปก่อนเก็บ: resize เหลือกว้างสุด maxWidth (ดาวน์สเกลอย่างเดียว ไม่ขยายรูปที่เล็กกว่าอยู่แล้ว) + แปลงเป็น JPEG คุณภาพที่กำหนด
+// เป้าหมาย: ลด localStorage/Google Drive payload ลง ~70-80% โดยยังอ่าน label/ตัวเลขบนกราฟได้ชัดเจน (ทดสอบด้วยภาพจริงแล้ว)
+function compressImage(dataUrl, maxWidth, quality){
+  return new Promise(resolve=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const targetW = Math.min(img.width, maxWidth); // ห้ามขยาย ตัดแค่ตอนใหญ่เกิน maxWidth เท่านั้น
+      const ratio = targetW / img.width;
+      const targetH = Math.round(img.height * ratio);
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW; canvas.height = targetH;
+      canvas.getContext('2d').drawImage(img, 0, 0, targetW, targetH);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = ()=> resolve(dataUrl); // โหลดรูปไม่สำเร็จ (เช่นไฟล์เพี้ยน) → ใช้ต้นฉบับแทน กันข้อมูลหาย ดีกว่าไม่มีรูปเลย
+    img.src = dataUrl;
+  });
+}
 function readShot(f,isEdit){
   const r=new FileReader();
-  r.onload=ev=>{
-    if(isEdit){editShots.push({data:ev.target.result,name:f.name});renderEditShotPreview();}
-    else{currentShots.push({data:ev.target.result,name:f.name});renderShotPreview();}
+  r.onload=async ev=>{
+    let data = ev.target.result;
+    try{ data = await compressImage(data, 900, 0.75); }
+    catch(e){ console.warn('[Screenshot] บีบอัดรูปไม่สำเร็จ ใช้ต้นฉบับแทน:', e); } // ป้องกันชั้นสอง เผื่อ compressImage เอง error ไม่คาดคิด
+    if(isEdit){editShots.push({data,name:f.name});renderEditShotPreview();}
+    else{currentShots.push({data,name:f.name});renderShotPreview();}
   };r.readAsDataURL(f);
 }
 function renderShotPreview(){
