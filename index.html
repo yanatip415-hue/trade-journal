@@ -2305,6 +2305,23 @@ function renderImportMappingUI(headers, dataRows){
   const isExness = detectExnessFormat(headers);
   const container = document.getElementById('import-map-fields');
 
+  // ═══ DEBUG PANEL: โชว์ข้อมูลดิบที่ SheetJS อ่านได้จริง เพื่อ debug ปัญหา mapping บนมือถือ (ไม่ต้องเปิด DevTools) ═══
+  let debugPanel = document.getElementById('import-debug-panel');
+  if(!debugPanel){
+    debugPanel = document.createElement('div');
+    debugPanel.id = 'import-debug-panel';
+    debugPanel.style.cssText = 'background:#1a1a2e;border:1px solid #555;border-radius:8px;'
+      + 'padding:10px 14px;margin-bottom:12px;font-size:11px;color:#9ad;'
+      + 'font-family:monospace;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow-y:auto';
+    container.parentNode.insertBefore(debugPanel, container);
+  }
+  debugPanel.textContent = '🔍 DEBUG (สกรีนช็อตส่งให้ตรวจสอบได้)\n'
+    + 'isExness: ' + isExness + '\n'
+    + 'Headers count: ' + headers.length + '\n'
+    + 'Headers: ' + JSON.stringify(headers) + '\n'
+    + 'Row1: ' + JSON.stringify(dataRows[0]||[]) + '\n'
+    + 'Row2: ' + JSON.stringify(dataRows[1]||[]);
+
   // แสดงป้ายแจ้งเตือนถ้าตรวจพบว่าเป็นไฟล์ Exness — ช่วยให้ผู้ใช้มั่นใจว่าระบบรู้จักไฟล์นี้
   let banner = document.getElementById('exness-detect-banner');
   if(isExness){
