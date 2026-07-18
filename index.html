@@ -389,7 +389,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
         </div>
         <input type="hidden" id="f-date">
       </div>
-      <div class="form-group"><label>Symbol</label><input type="text" id="f-symbol" placeholder="XAUUSD…" list="tv-list" style="text-transform:uppercase" oninput="calcAutoPnL()"></div>
+      <div class="form-group"><label>Symbol</label><input type="text" id="f-symbol" placeholder="XAUUSD…" style="text-transform:uppercase" oninput="calcAutoPnL()"></div>
       <div class="form-group">
         <label data-i18n="lbl_dir">ทิศทาง</label>
         <div class="dir-group">
@@ -533,7 +533,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
         <button class="btn-sm" onclick="openExportModal()" style="color:var(--accent)"><span data-i18n="btn_export">⬇ Export…</span></button>
         <button class="btn-sm" onclick="clearAll()" style="color:var(--red)"><span data-i18n="btn_delall">🗑 ลบทั้งหมด</span></button>
         <input type="file" id="import-file" accept=".csv" style="display:none" onchange="onImportFile(this)">
-        <input type="file" id="import-excel-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="onImportExcelFile(this)">
+        <input type="file" id="import-excel-file" accept=".xlsx,.xls" style="display:none" onchange="onImportExcelFile(this)">
       </div>
     </div>
     <div class="filter-row">
